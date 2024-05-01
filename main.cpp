@@ -390,9 +390,10 @@ int main() {
             for (int x = 0; x < image0.width(); x++)
             {
                 glm::vec3 d = image0(x, y) - imageRef(x, y);
-                mse += lengthSquared(d);
+                mse += lengthSquared(d * 255.0f);
             }
         }
+        mse /= (image0.height() * image0.width() * 3 );
 
         float scaling = 0.01f;
         for (int i = 0; i < splats.size(); i++)
@@ -411,7 +412,7 @@ int main() {
         ImGui::SetNextWindowSize({ 600, 800 }, ImGuiCond_Once);
         ImGui::Begin("Panel");
         ImGui::Text("fps = %f", GetFrameRate());
-        ImGui::Text("mse = %.3f", mse);
+        ImGui::Text("mse = %.5f", mse);
         ImGui::Text("iterations = %d", iterations);
         ImGui::Text("perturbIdx = %d", perturbIdx);
 
