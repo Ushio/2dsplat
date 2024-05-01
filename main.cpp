@@ -382,7 +382,7 @@ int main() {
         float scaling = 0.01f;
         for (int i = 0; i < splats.size(); i++)
         {
-            DrawCircle(glm::vec3(splats[i].pos * scaling, 0.0f), {0,0,1}, glm::u8vec3(splats[i].color * 255.0f), splats[i].radius* scaling);
+            DrawCircle(glm::vec3(splats[i].pos.x, -splats[i].pos.y, 0.0f)* scaling, {0,0,1}, glm::u8vec3(splats[i].color * 255.0f), splats[i].radius* scaling);
         }
 
         iterations++;
