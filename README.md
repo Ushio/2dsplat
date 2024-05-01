@@ -1,4 +1,4 @@
-## Simple 2dd splatting optimization 
+## Simple 2d splatting optimization 
 
 ![demo](demo.png)
 
