@@ -46,26 +46,40 @@ int focus = -1;//510
 
 #define RADIUS_MAX 16.0f
 
+enum
+{
+    SIGNBIT_POS_X = 0,
+    SIGNBIT_POS_Y,
+    SIGNBIT_RADIUS,
+    SIGNBIT_COL_R,
+    SIGNBIT_COL_G,
+    SIGNBIT_COL_B,
+};
+
 bool bitAt(uint32_t u, uint32_t i)
 {
     return u & (1u << i);
 }
-
-Splat perturb(Splat splat, uint32_t i, uint32_t perturbIdx, float s )
+float signAt( uint32_t u, uint32_t i )
 {
-    if (i != focus && focus != -1)
-        return splat;
+    return bitAt( u, i ) ? -1.0f : 1.0f;
+}
 
-    uint32_t r0 = pcg(i + pcg(perturbIdx));
+uint32_t splatRng(uint32_t i, uint32_t perturbIdx)
+{
+    return pcg(i + pcg(perturbIdx));
+}
 
-    splat.pos.x += s * (bitAt(r0, 0) ? -POS_PURB : POS_PURB);
-    splat.pos.y += s * (bitAt(r0, 1) ? -POS_PURB : POS_PURB);
+Splat perturb(Splat splat, uint32_t r, float s )
+{
+    splat.pos.x += s * POS_PURB * signAt(r, SIGNBIT_POS_X);
+    splat.pos.y += s * POS_PURB * signAt(r, SIGNBIT_POS_Y);
 
-    splat.radius += s * (bitAt(r0, 2) ? -RADIUS_PURB : RADIUS_PURB);
+    splat.radius += s * RADIUS_PURB * signAt(r, SIGNBIT_RADIUS);
 
-    splat.color.x += s * (bitAt(r0, 3) ? -COLOR_PURB : COLOR_PURB);
-    splat.color.y += s * (bitAt(r0, 4) ? -COLOR_PURB : COLOR_PURB);
-    splat.color.z += s * (bitAt(r0, 5) ? -COLOR_PURB : COLOR_PURB);
+    splat.color.x += s * COLOR_PURB * signAt(r, SIGNBIT_COL_R);
+    splat.color.y += s * COLOR_PURB * signAt(r, SIGNBIT_COL_G);
+    splat.color.z += s * COLOR_PURB * signAt(r, SIGNBIT_COL_B);
 
     // constraints
     splat.radius = glm::clamp(splat.radius, 4.0f, RADIUS_MAX);
@@ -90,7 +104,7 @@ void drawSplats( pr::Image2DRGBA32* image, std::vector<int>* splatIndices, const
         Splat splat = splats[i];
 
         // Apply perturb
-        splat = perturb(splat, i, perturbIdx, s);
+        splat = perturb(splat, splatRng( i, perturbIdx ), s);
 
         glm::ivec2 lower = glm::ivec2( glm::floor( splat.pos - glm::vec2(splat.radius, splat.radius) ) );
         glm::ivec2 upper = glm::ivec2( glm::ceil( splat.pos + glm::vec2(splat.radius, splat.radius) ) );
@@ -301,8 +315,9 @@ int main() {
                         float fwh1 = lengthSquared(d1);
                         float df = fwh0 - fwh1;
                 
-                        Splat s0 = perturb(splats[i], i, perturbIdx, scale );
-                        Splat s1 = perturb(splats[i], i, perturbIdx, -scale );
+
+                        Splat s0 = perturb(splats[i], splatRng( i, perturbIdx ), scale );
+                        Splat s1 = perturb(splats[i], splatRng( i, perturbIdx ), -scale );
 
                         // based on the paper, no div by 2, no div by eps
                         // only s_i is taken into account.
