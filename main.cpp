@@ -121,9 +121,11 @@ void drawSplats( pr::Image2DRGBA32* image, std::vector<int>* splatIndices, const
                 float d2 = lengthSquared(splat.pos - glm::vec2((float)x, (float)y));
                 if (d2 < splat.radius * splat.radius)
                 {
-                    float T = std::exp( -2 * d2 / (splat.radius * splat.radius));
-                    (*image)(x, y) = glm::mix( (*image)(x, y), glm::vec4(splat.color, 1.0f), T);
-                    // (*image)(x, y) = glm::vec4(splat.color, 1.0f);
+                    float T = std::expf( -2 * d2 / (splat.radius * splat.radius));
+                    glm::vec3 c = (*image)(x, y);
+                    c = glm::mix( c, splat.color, T );
+                    (*image)(x, y) = glm::vec4(c, 1.0f);
+
                     if (splatIndices)
                     {
                         splatIndices[y * w + x].push_back(i);
