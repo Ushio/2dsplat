@@ -306,17 +306,16 @@ int main() {
             {
                 for (int x = 0; x < image0.width(); x++)
                 {
-                    // should take both?
+                    glm::vec3 d0 = imageRef(x, y) - image0(x, y);
+                    glm::vec3 d1 = imageRef(x, y) - image1(x, y);
+                    float fwh0 = lengthSquared(d0);
+                    float fwh1 = lengthSquared(d1);
+                    float df = fwh0 - fwh1;
+
                     for (int i : indices0[y * image0.width() + x])
                     {
                         if (i != focus && focus != -1)
                             continue;
-
-                        glm::vec3 d0 = imageRef(x, y) - image0(x, y);
-                        glm::vec3 d1 = imageRef(x, y) - image1(x, y);
-                        float fwh0 = lengthSquared(d0);
-                        float fwh1 = lengthSquared(d1);
-                        float df = fwh0 - fwh1;
 
                         uint32_t r = splatRng(i, perturbIdx);
 
@@ -372,6 +371,7 @@ int main() {
 
         std::fill(image0.data(), image0.data() + image0.width() * image0.height(), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
         drawSplats(&image0, 0, splats, 0, 0);
+
         //for (int y = 0; y < image0.height(); y++)
         //{
         //    for (int x = 0; x < image0.width(); x++)
