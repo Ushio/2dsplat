@@ -60,6 +60,8 @@ bool bitAt(uint32_t u, uint32_t i)
 {
     return u & (1u << i);
 }
+
+// 0: +1, 1: -1
 float signAt( uint32_t u, uint32_t i )
 {
     return bitAt( u, i ) ? -1.0f : 1.0f;
@@ -161,7 +163,6 @@ struct SplatAdam
     Adam radius;
     Adam color[3];
 };
-
 
 int main() {
     using namespace pr;
@@ -314,21 +315,20 @@ int main() {
                         float fwh0 = lengthSquared(d0);
                         float fwh1 = lengthSquared(d1);
                         float df = fwh0 - fwh1;
-                
 
-                        Splat s0 = perturb(splats[i], splatRng( i, perturbIdx ), scale );
-                        Splat s1 = perturb(splats[i], splatRng( i, perturbIdx ), -scale );
+                        uint32_t r = splatRng(i, perturbIdx);
 
                         // based on the paper, no div by 2, no div by eps
                         // only s_i is taken into account.
-                        dSplats[i].pos.x += df * sign_of( s0.pos.x - s1.pos.x );
-                        dSplats[i].pos.y += df * sign_of( s0.pos.y - s1.pos.y );
+                        // checking bits is enough to determine the signs.
+                        dSplats[i].pos.x += df * signAt(r, SIGNBIT_POS_X);
+                        dSplats[i].pos.y += df * signAt(r, SIGNBIT_POS_Y);
 
-                        dSplats[i].radius += df * sign_of( s0.radius - s1.radius );
+                        dSplats[i].radius += df * signAt(r, SIGNBIT_RADIUS);
 
-                        dSplats[i].color.x += df * sign_of( s0.color.x - s1.color.x );
-                        dSplats[i].color.y += df * sign_of( s0.color.y - s1.color.y );
-                        dSplats[i].color.z += df * sign_of( s0.color.z - s1.color.z );
+                        dSplats[i].color.x += df * signAt(r, SIGNBIT_COL_R);
+                        dSplats[i].color.y += df * signAt(r, SIGNBIT_COL_G);
+                        dSplats[i].color.z += df * signAt(r, SIGNBIT_COL_B);
                     }
                 }
             }
