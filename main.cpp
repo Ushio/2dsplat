@@ -2,6 +2,13 @@
 #include <iostream>
 #include <memory>
 
+uint32_t pcg(uint32_t v)
+{
+    uint32_t state = v * 747796405u + 2891336453u;
+    uint32_t word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
 glm::uvec3 pcg3d(glm::uvec3 v)
 {
     v = v * 1664525u + 1013904223u;
@@ -11,11 +18,17 @@ glm::uvec3 pcg3d(glm::uvec3 v)
     return v;
 }
 
-
-glm::vec3 randomsign3d(glm::uvec3 v)
+glm::vec3 sign_of(glm::vec3 v)
 {
-    glm::vec3 r = glm::vec3(pcg3d(v)) / glm::vec3(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
-    return glm::sign(r - glm::vec3(0.5f, 0.5f, 0.5f));
+    return {
+        v.x < 0.0f ? -1.0f : 1.0f,
+        v.y < 0.0f ? -1.0f : 1.0f,
+        v.z < 0.0f ? -1.0f : 1.0f
+    };
+}
+float sign_of(float v)
+{
+    return v < 0.0f ? -1.0f : 1.0f;
 }
 
 struct Splat
@@ -27,26 +40,35 @@ struct Splat
 
 int focus = -1;//510
 
+#define POS_PURB 0.1f
+#define RADIUS_PURB 0.1f
+#define COLOR_PURB 0.01f
+
+#define RADIUS_MAX 16.0f
+
+bool bitAt(uint32_t u, uint32_t i)
+{
+    return u & (1u << i);
+}
+
 Splat perturb(Splat splat, uint32_t i, uint32_t perturbIdx, float s )
 {
     if (i != focus && focus != -1)
         return splat;
 
-    glm::vec3 r0 = randomsign3d({ i, 0, perturbIdx });
-    glm::vec3 r1 = randomsign3d({ i, 1, perturbIdx });
-    // glm::vec3 r0 = glm::vec3(pcg3d({ i, 0, perturbIdx })) / glm::vec3(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
-    // glm::vec3 r1 = glm::vec3(pcg3d({ i, 1, perturbIdx })) / glm::vec3(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
+    uint32_t r0 = pcg(i + pcg(perturbIdx));
 
-    splat.pos.x += s * glm::mix(-0.05f, 0.05f, r0.x);
-    splat.pos.y += s * glm::mix(-0.05f, 0.05f, r0.y);
+    splat.pos.x += s * (bitAt(r0, 0) ? -POS_PURB : POS_PURB);
+    splat.pos.y += s * (bitAt(r0, 1) ? -POS_PURB : POS_PURB);
 
-    splat.radius += s * glm::mix(-0.1f, 0.1f, r0.z);
-    splat.color.x += s * glm::mix(-0.01f, 0.01f, r1.x);
-    splat.color.y += s * glm::mix(-0.01f, 0.01f, r1.y);
-    splat.color.z += s * glm::mix(-0.01f, 0.01f, r1.z);
+    splat.radius += s * (bitAt(r0, 2) ? -RADIUS_PURB : RADIUS_PURB);
+
+    splat.color.x += s * (bitAt(r0, 3) ? -COLOR_PURB : COLOR_PURB);
+    splat.color.y += s * (bitAt(r0, 4) ? -COLOR_PURB : COLOR_PURB);
+    splat.color.z += s * (bitAt(r0, 5) ? -COLOR_PURB : COLOR_PURB);
 
     // constraints
-    splat.radius = glm::clamp(splat.radius, 4.0f, 8.0f);
+    splat.radius = glm::clamp(splat.radius, 4.0f, RADIUS_MAX);
     splat.color = glm::clamp(splat.color, { 0.0f, 0.0f,0.0f }, { 1.0f ,1.0f ,1.0f });
 
     return splat;
@@ -59,7 +81,7 @@ float lengthSquared(glm::vec3 v)
 {
     return v.x * v.x + v.y * v.y + v.z * v.z;
 }
-void drawSplats( pr::Image2DRGBA32* image, int* splatIndices, const std::vector<Splat>& splats, uint32_t perturbIdx, float s )
+void drawSplats( pr::Image2DRGBA32* image, std::vector<int>* splatIndices, const std::vector<Splat>& splats, uint32_t perturbIdx, float s )
 {
     int w = image->width();
     int h = image->height();
@@ -83,11 +105,12 @@ void drawSplats( pr::Image2DRGBA32* image, int* splatIndices, const std::vector<
                 float d2 = lengthSquared(splat.pos - glm::vec2((float)x, (float)y));
                 if (d2 < splat.radius * splat.radius)
                 {
-                    (*image)(x, y) = glm::vec4(splat.color, 1.0f);
-
+                    float T = std::exp( -2 * d2 / (splat.radius * splat.radius));
+                    (*image)(x, y) = glm::mix( (*image)(x, y), glm::vec4(splat.color, 1.0f), T);
+                    // (*image)(x, y) = glm::vec4(splat.color, 1.0f);
                     if (splatIndices)
                     {
-                        splatIndices[y * w + x] = i;
+                        splatIndices[y * w + x].push_back(i);
                     }
                 }
             }
@@ -95,16 +118,6 @@ void drawSplats( pr::Image2DRGBA32* image, int* splatIndices, const std::vector<
     }
 }
 
-
-float epsDiv( float x, float y, float eps )
-{
-    // return x / y;
-    if (y < 0.0f)
-    {
-        eps = -eps;
-    }
-    return x / (y + eps);
-}
 
 const float ADAM_BETA1 = 0.9f;
 const float ADAM_BETA2 = 0.99f;
@@ -148,9 +161,8 @@ int main() {
     Initialize(config);
 
     Camera3D camera;
-    camera.origin = { 4, 4, 4 };
+    camera.origin = { 0, 0, 4 };
     camera.lookat = { 0, 0, 0 };
-    camera.zUp = true;
 
     double e = GetElapsedTime();
 
@@ -172,21 +184,8 @@ int main() {
 
     textureRef->upload(imageRef);
     
-    std::vector<Splat> splats;
-
-    for (int i = 0; i < 512; i++)
-    {
-        glm::vec3 r0 = glm::vec3(pcg3d({ i, 0, 0xFFFFFFFF })) / glm::vec3(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
-        glm::vec3 r1 = glm::vec3(pcg3d({ i, 1, 0xFFFFFFFF })) / glm::vec3(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
-
-        Splat s;
-        s.pos.x = glm::mix(r0.x, (float)imageRef.width() - 1, r0.x);
-        s.pos.y = glm::mix(r0.y, (float)imageRef.height() - 1, r0.y);
-        s.radius = 4;// 8 + 32 * r0.z;
-        // s.color = r1;
-        s.color = { 0.5f ,0.5f ,0.5f };
-        splats.push_back(s);
-    }
+    int NSplat = 512;
+    std::vector<Splat> splats(NSplat);
 
     float beta1t = 1.0f;
     float beta2t = 1.0f;
@@ -200,8 +199,8 @@ int main() {
     Image2DRGBA32 image1;
     image1.allocate(imageRef.width(), imageRef.height());
 
-    std::vector<int> indices0(imageRef.width()* imageRef.height());
-    std::vector<int> indices1(imageRef.width() * imageRef.height());
+    std::vector<std::vector<int>> indices0(imageRef.width()* imageRef.height());
+    //std::vector<int> indices1(imageRef.width() * imageRef.height());
 
     // drawSplats(&image0, splats, 0 );
 
@@ -215,8 +214,34 @@ int main() {
     //}
 
     // tex0->upload(image0);
-    int N = 64;
+
+    int N = 16;
     int perturbIdx = 0;
+    int iterations = 0;
+
+    auto init = [&]() {
+        for (int i = 0; i < NSplat; i++)
+        {
+            glm::vec3 r0 = glm::vec3(pcg3d({ i, 0, 0xFFFFFFFF })) / glm::vec3(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
+
+            Splat s;
+            s.pos.x = glm::mix(r0.x, (float)imageRef.width() - 1, r0.x);
+            s.pos.y = glm::mix(r0.y, (float)imageRef.height() - 1, r0.y);
+            s.radius = 8;
+            s.color = { 0.5f ,0.5f ,0.5f };
+            splats[i] = s;
+        }
+
+        beta1t = 1.0f;
+        beta2t = 1.0f;
+        splatAdams.clear();
+        splatAdams.resize(NSplat);
+
+        perturbIdx = 0;
+        iterations = 0;
+    };
+
+    init();
 
     while (pr::NextFrame() == false) {
         if (IsImGuiUsingMouse() == false) {
@@ -243,8 +268,10 @@ int main() {
             // clear images
             std::fill(image0.data(), image0.data() + image0.width() * image0.height(), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
             std::fill(image1.data(), image1.data() + image1.width() * image1.height(), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-            std::fill(indices0.begin(), indices0.end(), -1);
-            std::fill(indices1.begin(), indices1.end(), -1);
+            // std::fill(indices0.begin(), indices0.end(), -1);
+            // std::fill(indices1.begin(), indices1.end(), -1);
+            for (int i = 0; i < indices0.size(); i++)
+                indices0[i].clear();
 
             drawSplats(&image0, indices0.data(), splats, perturbIdx, scale);
             //if(k + 1 == N)
@@ -253,7 +280,7 @@ int main() {
             //}
             //tex0->upload(image0);
 
-            drawSplats(&image1, indices1.data(), splats, perturbIdx, -scale);
+            drawSplats(&image1, nullptr, splats, perturbIdx, -scale);
             //tex1->upload(image1);
 
             // accumurate derivatives
@@ -263,36 +290,31 @@ int main() {
                 for (int x = 0; x < image0.width(); x++)
                 {
                     // should take both?
-                    int i = indices0[y * image0.width() + x];
-                    if( i == -1 )
+                    for (int i : indices0[y * image0.width() + x])
                     {
-                        //i = indices1[y * image0.width() + x];
-                        //
-                        //if( i == -1)
+                        if (i != focus && focus != -1)
                             continue;
-                    }
 
-                    if (i != focus && focus != -1)
-                        continue;
-
-                    glm::vec3 d0 = imageRef(x, y) - image0(x, y);
-                    glm::vec3 d1 = imageRef(x, y) - image1(x, y);
-                    float fwh0 = lengthSquared(d0);
-                    float fwh1 = lengthSquared(d1);
-                    float df = fwh0 - fwh1;
+                        glm::vec3 d0 = imageRef(x, y) - image0(x, y);
+                        glm::vec3 d1 = imageRef(x, y) - image1(x, y);
+                        float fwh0 = lengthSquared(d0);
+                        float fwh1 = lengthSquared(d1);
+                        float df = fwh0 - fwh1;
                 
-                    Splat s0 = perturb(splats[i], i, perturbIdx, scale );
-                    Splat s1 = perturb(splats[i], i, perturbIdx, -scale );
+                        Splat s0 = perturb(splats[i], i, perturbIdx, scale );
+                        Splat s1 = perturb(splats[i], i, perturbIdx, -scale );
 
-                    // x2 is missing
-                    dSplats[i].pos.x += epsDiv( df, s0.pos.x - s1.pos.x, 1.0e-15f );
-                    dSplats[i].pos.y += epsDiv( df, s0.pos.y - s1.pos.y, 1.0e-15f );
+                        // based on the paper, no div by 2, no div by eps
+                        // only s_i is taken into account.
+                        dSplats[i].pos.x += df * sign_of( s0.pos.x - s1.pos.x );
+                        dSplats[i].pos.y += df * sign_of( s0.pos.y - s1.pos.y );
 
-                    dSplats[i].radius += epsDiv( df, s0.radius - s1.radius, 1.0e-15f );
+                        dSplats[i].radius += df * sign_of( s0.radius - s1.radius );
 
-                    dSplats[i].color.x += epsDiv( df, s0.color.x - s1.color.x, 1.0e-15f );
-                    dSplats[i].color.y += epsDiv( df, s0.color.y - s1.color.y, 1.0e-15f );
-                    dSplats[i].color.z += epsDiv( df, s0.color.z - s1.color.z, 1.0e-15f );
+                        dSplats[i].color.x += df * sign_of( s0.color.x - s1.color.x );
+                        dSplats[i].color.y += df * sign_of( s0.color.y - s1.color.y );
+                        dSplats[i].color.z += df * sign_of( s0.color.z - s1.color.z );
+                    }
                 }
             }
             perturbIdx++;
@@ -303,31 +325,31 @@ int main() {
         beta2t *= ADAM_BETA2;
 
         float alpha = 1.0f;
-        // float alpha = 0.0000001f;
+        // based on the paper, no div by N, but use purb amount as learning rate.
 
         for (int i = 0; i < splats.size(); i++)
         {
             if (i != focus && focus != -1)
                 continue;
 
-            splats[i].pos.x = splatAdams[i].pos[0].optimize(splats[i].pos.x, dSplats[i].pos.x / (float)N, 0.05f * alpha, beta1t, beta2t);
-            splats[i].pos.y = splatAdams[i].pos[1].optimize(splats[i].pos.y, dSplats[i].pos.y / (float)N, 0.05f * alpha, beta1t, beta2t);
+            splats[i].pos.x = splatAdams[i].pos[0].optimize(splats[i].pos.x, dSplats[i].pos.x, POS_PURB * alpha, beta1t, beta2t);
+            splats[i].pos.y = splatAdams[i].pos[1].optimize(splats[i].pos.y, dSplats[i].pos.y, POS_PURB * alpha, beta1t, beta2t);
             
             if ( i == focus)
                 printf("%.5f %.5f\n", dSplats[i].color.x / (float)N, dSplats[i].color.y / (float)N);
 
-            splats[i].radius = splatAdams[i].radius.optimize(splats[i].radius, dSplats[i].radius / (float)N, 0.1f * alpha, beta1t, beta2t);
+            splats[i].radius = splatAdams[i].radius.optimize(splats[i].radius, dSplats[i].radius, RADIUS_PURB * alpha, beta1t, beta2t);
 
-            splats[i].color.x = splatAdams[i].color[0].optimize(splats[i].color.x, dSplats[i].color.x / (float)N, 0.05f * alpha, beta1t, beta2t );
-            splats[i].color.y = splatAdams[i].color[1].optimize(splats[i].color.y, dSplats[i].color.y / (float)N, 0.05f * alpha, beta1t, beta2t );
-            splats[i].color.z = splatAdams[i].color[2].optimize(splats[i].color.z, dSplats[i].color.z / (float)N, 0.05f * alpha, beta1t, beta2t );
+            splats[i].color.x = splatAdams[i].color[0].optimize(splats[i].color.x, dSplats[i].color.x, COLOR_PURB * alpha, beta1t, beta2t );
+            splats[i].color.y = splatAdams[i].color[1].optimize(splats[i].color.y, dSplats[i].color.y, COLOR_PURB * alpha, beta1t, beta2t );
+            splats[i].color.z = splatAdams[i].color[2].optimize(splats[i].color.z, dSplats[i].color.z, COLOR_PURB * alpha, beta1t, beta2t );
 
             //splats[i].color -= 0.0001f * dSplats[i].color / (float)N;
 
             // constraints
             splats[i].pos.x = glm::clamp(splats[i].pos.x, 0.0f, (float)imageRef.width() - 1);
             splats[i].pos.y = glm::clamp(splats[i].pos.y, 0.0f, (float)imageRef.height() - 1);
-            splats[i].radius = glm::clamp(splats[i].radius, 4.0f, 8.0f);
+            splats[i].radius = glm::clamp(splats[i].radius, 4.0f, RADIUS_MAX);
             splats[i].color = glm::clamp(splats[i].color, { 0.0f, 0.0f ,0.0f }, { 1.0f ,1.0f ,1.0f });
         }
 
@@ -357,6 +379,14 @@ int main() {
             }
         }
 
+        float scaling = 0.01f;
+        for (int i = 0; i < splats.size(); i++)
+        {
+            DrawCircle(glm::vec3(splats[i].pos * scaling, 0.0f), {0,0,1}, glm::u8vec3(splats[i].color * 255.0f), splats[i].radius* scaling);
+        }
+
+        iterations++;
+
         PopGraphicState();
         EndCamera();
 
@@ -367,18 +397,25 @@ int main() {
         ImGui::Begin("Panel");
         ImGui::Text("fps = %f", GetFrameRate());
         ImGui::Text("mse = %.3f", mse);
+        ImGui::Text("iterations = %d", iterations);
         ImGui::Text("perturbIdx = %d", perturbIdx);
-        ImGui::Image(textureRef, ImVec2(textureRef->width(), textureRef->height()));
-        ImGui::Image(tex0, ImVec2(tex0->width(), tex0->height()));
-        ImGui::Image(tex1, ImVec2(tex1->width(), tex1->height()));
+
+        if (ImGui::Button("Restart"))
+        {
+            init();
+        }
+
+        ImGui::Image(textureRef, ImVec2(textureRef->width() * 2, textureRef->height() * 2));
+        ImGui::Image(tex0, ImVec2(tex0->width() * 2, tex0->height() * 2));
+        ImGui::Image(tex1, ImVec2(tex1->width() * 2, tex1->height() * 2));
 
         ImGui::End();
 
-        ImGui::SetNextWindowPos({ 800, 20 }, ImGuiCond_Once);
-        ImGui::SetNextWindowSize({ 600, 300 }, ImGuiCond_Once);
-        ImGui::Begin("Params");
-        ImGui::SliderFloat("scale", &scale, 0, 1);
-        ImGui::End();
+        //ImGui::SetNextWindowPos({ 800, 20 }, ImGuiCond_Once);
+        //ImGui::SetNextWindowSize({ 600, 300 }, ImGuiCond_Once);
+        //ImGui::Begin("Params");
+        //ImGui::SliderFloat("scale", &scale, 0, 1);
+        //ImGui::End();
 
         EndImGui();
     }
